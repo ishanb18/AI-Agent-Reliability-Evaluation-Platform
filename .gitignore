@@ -1,0 +1,62 @@
+# ── Virtual Environment ────────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Environment Variables (NEVER commit secrets) ───────────────────────────────
+.env
+.env.*
+# allow the example template to be committed
+!.env.example
+
+# ── Python Cache ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pycache
+
+# ── Testing & Coverage ─────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.log
+
+# ── Database ───────────────────────────────────────────────────────────────────
+*.db
+*.sqlite3
+*.sqlite
+
+# ── Alembic generated (keep versions/ but ignore cache) ───────────────────────
+alembic/__pycache__/
+
+# ── OS Files ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE / Editor ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Build / Distribution ──────────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+*.whl
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+# keep docker-compose.yml but ignore local override with secrets
+docker-compose.override.yml
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+# extracted spec doc files, not source code
+spec.txt
+*.docx

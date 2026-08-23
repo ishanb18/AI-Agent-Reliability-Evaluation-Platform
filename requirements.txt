@@ -1,0 +1,30 @@
+# ── Web Framework ──────────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+
+# ── Database ───────────────────────────────────────────────────────────────────
+sqlalchemy==2.0.31
+psycopg2-binary==2.9.9
+alembic==1.13.2                  # DB migrations
+
+# ── Config / Validation ────────────────────────────────────────────────────────
+pydantic==2.8.2
+pydantic-settings==2.3.4         # loads .env into typed settings
+
+# ── LLM Providers ─────────────────────────────────────────────────────────────
+google-generativeai==0.7.2       # Gemini
+groq==0.9.0                      # Groq (fast inference)
+ollama==0.2.1                    # Ollama (local models)
+
+# ── HTTP Client ────────────────────────────────────────────────────────────────
+httpx==0.27.0                    # async HTTP (used by provider adapters)
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1             # load .env
+tenacity==8.3.0                  # retries for provider calls
+structlog==24.2.0                # structured logging
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+pytest==8.2.2
+pytest-asyncio==0.23.7
+httpx                            # already listed above; pytest needs it for TestClient

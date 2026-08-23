@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine          # lightweight official postgres image
+    container_name: evalplatform_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evaluser
+      POSTGRES_PASSWORD: evalpass
+      POSTGRES_DB: evaldb
+    ports:
+      - "5432:5432"                    # host:container — access from localhost:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data   # persist data between restarts
+
+volumes:
+  postgres_data:
