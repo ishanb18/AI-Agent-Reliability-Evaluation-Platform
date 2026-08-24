@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     # LLM Providers
     gemini_api_key: str = ""      # empty default = provider is optional
     groq_api_key: str = ""
+    ollama_base_url: str = "http://localhost:11434"
+
+    # Default routing & fallbacks
+    default_provider: str = "gemini"
+    fallback_providers: list[str] = ["groq", "ollama"]
 
     # App
     app_env: str = "development"

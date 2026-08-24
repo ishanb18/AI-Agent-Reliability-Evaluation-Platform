@@ -8,10 +8,15 @@ from app.core.config import settings
 # The engine is the core connection to PostgreSQL.
 # - pool_pre_ping=True: before each query, SQLAlchemy checks if the connection
 #   is still alive and reconnects if it dropped (important for long-running apps).
-engine = create_engine(
-    settings.database_url,
-    pool_pre_ping=True,
-)
+db_url = settings.database_url
+try:
+    if db_url.startswith("sqlite"):
+        engine = create_engine(db_url, connect_args={"check_same_thread": False})
+    else:
+        engine = create_engine(db_url, pool_pre_ping=True)
+except Exception:
+    # Fallback to local SQLite if PostgreSQL container is down
+    engine = create_engine("sqlite:///./evalplatform.db", connect_args={"check_same_thread": False})
 
 # ── Session Factory ───────────────────────────────────────────────────────────
 # SessionLocal is a factory: calling SessionLocal() creates a new DB session.
@@ -28,19 +33,26 @@ class Base(DeclarativeBase):
     pass
 
 
-# ── Dependency for FastAPI routes ─────────────────────────────────────────────
+from sqlalchemy import text
+
 def get_db():
     """
     FastAPI dependency injection: yields a DB session for the duration of
-    one HTTP request, then closes it automatically.
-
-    Usage in a route:
-        @router.get("/items")
-        def list_items(db: Session = Depends(get_db)):
-            ...
+    one HTTP request, then closes it automatically. Handles automatic SQLite fallback if PostgreSQL is offline.
     """
-    db = SessionLocal()
     try:
-        yield db
-    finally:
-        db.close()
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        try:
+            yield db
+        finally:
+            db.close()
+    except Exception:
+        sqlite_engine = create_engine("sqlite:///./evalplatform.db", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=sqlite_engine)
+        FallbackSession = sessionmaker(autocommit=False, autoflush=False, bind=sqlite_engine)
+        db = FallbackSession()
+        try:
+            yield db
+        finally:
+            db.close()
