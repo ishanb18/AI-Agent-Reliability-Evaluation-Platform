@@ -7,7 +7,8 @@ This document provides a line-by-line breakdown and explanation of **every new f
 ## 1. ⚙️ `app/core/config.py` *(Modified)*
 
 ### Code Snippet:
-```python
+
+```Python
     # LLM Providers
     gemini_api_key: str = ""      # empty default = provider is optional
     groq_api_key: str = ""
@@ -19,6 +20,7 @@ This document provides a line-by-line breakdown and explanation of **every new f
 ```
 
 ### Technical Explanation:
+
 - **`ollama_base_url`**: Defines the base URL for the local Ollama server (`http://localhost:11434`). This allows connecting to Ollama locally without hardcoding endpoints inside provider logic.
 - **`default_provider`**: Configures `"gemini"` as the primary default provider for gateway requests when no provider is explicitly specified by the caller.
 - **`fallback_providers`**: Defines the failover sequence (`["groq", "ollama"]`). If Gemini encounters rate limits (HTTP 429), downtime, or missing API keys, the Model Gateway automatically routes requests to Groq, and subsequently to Ollama.
@@ -28,6 +30,7 @@ This document provides a line-by-line breakdown and explanation of **every new f
 ## 2. 🔌 `app/providers/base.py` *(New File)*
 
 ### Code Snippet:
+
 ```python
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
@@ -81,6 +84,7 @@ class BaseProvider(ABC):
 ```
 
 ### Technical Explanation:
+
 - **`ProviderResponse` (Pydantic Model)**: Establishes a strict contract for all provider outputs. Regardless of whether Google Gemini, Groq, or Ollama is called, the output is normalized into this standard shape containing text, latency, tokens, error state, and fallback metadata.
 - **`BaseProvider` (Abstract Base Class)**: Enforces Python's `ABC` design pattern. Any provider class MUST implement `.name`, `.supported_models`, `.is_available()`, and `.generate()`. If a developer creates a new provider adapter and forgets one of these methods, Python raises an explicit TypeError at initialization time.
 
@@ -89,6 +93,7 @@ class BaseProvider(ABC):
 ## 3. ♊ `app/providers/gemini.py` *(New File)*
 
 ### Code Snippet:
+
 ```python
 import time
 import structlog
@@ -175,6 +180,7 @@ class GeminiProvider(BaseProvider):
 ```
 
 ### Technical Explanation:
+
 - **`_MODELS` Dictionary**: Maps job roles to active Google Gemini models:
   - `fast`: `gemini-3.5-flash-lite` (optimized for sub-second classification)
   - `reasoning`: `gemini-3.1-pro-preview` (high-capacity reasoning for LLM-as-a-Judge)
@@ -187,6 +193,7 @@ class GeminiProvider(BaseProvider):
 ## 4. ⚡ `app/providers/groq.py` *(New File)*
 
 ### Code Snippet:
+
 ```python
 class GroqProvider(BaseProvider):
     _MODELS = {
@@ -240,6 +247,7 @@ class GroqProvider(BaseProvider):
 ```
 
 ### Technical Explanation:
+
 - **`_MODELS` Dictionary**: Configures active Groq Cloud models:
   - `fast`: `groq/compound-mini` (ultra-low latency)
   - `reasoning`: `openai/gpt-oss-120b` (large-scale reasoning)
@@ -251,6 +259,7 @@ class GroqProvider(BaseProvider):
 ## 5. 🦙 `app/providers/ollama.py` *(New File)*
 
 ### Code Snippet:
+
 ```python
 class OllamaProvider(BaseProvider):
     _MODELS = {
@@ -306,6 +315,7 @@ class OllamaProvider(BaseProvider):
 ```
 
 ### Technical Explanation:
+
 - **Zero API Key Requirement**: Connects directly to local Ollama daemon (`http://localhost:11434`).
 - **`is_available()`**: Sends a lightweight HTTP GET request to `/api/tags` with a 1.5s timeout. If Ollama is running locally, it returns `True`. If unavailable, it flags `False` without causing latency bottlenecks for cloud requests.
 - Maps local Ollama token count attributes (`prompt_eval_count` and `eval_count`) into our standardized schema.
@@ -315,6 +325,7 @@ class OllamaProvider(BaseProvider):
 ## 6. 🌐 `app/providers/gateway.py` *(New File)*
 
 ### Code Snippet:
+
 ```python
 class ProviderStats(BaseModel):
     provider: str
@@ -375,6 +386,7 @@ class ModelGateway:
 ```
 
 ### Technical Explanation:
+
 - **`ModelGateway`**: Central orchestrator managing provider registry, failover routing, and usage telemetry.
 - **Automatic Fallback Logic**:
   1. Receives prompt request. Determines primary provider (e.g. Gemini).
@@ -390,6 +402,7 @@ class ModelGateway:
 ## 7. 📦 `app/providers/__init__.py` *(New File)*
 
 ### Code Snippet:
+
 ```python
 from app.providers.base import BaseProvider, ProviderResponse
 from app.providers.gemini import GeminiProvider
@@ -409,6 +422,7 @@ __all__ = [
 ```
 
 ### Technical Explanation:
+
 Cleanly exports provider interface, response models, adapters, and gateway class for imports throughout the application.
 
 ---
@@ -416,6 +430,7 @@ Cleanly exports provider interface, response models, adapters, and gateway class
 ## 8. 🗄️ `app/db/database.py` *(Modified)*
 
 ### Code Snippet:
+
 ```python
 db_url = settings.database_url
 try:
@@ -448,6 +463,7 @@ def get_db():
 ```
 
 ### Technical Explanation:
+
 - **Resilient Database Fallback**: Previously, if local PostgreSQL container was stopped, API calls failed.
 - Now, `get_db()` tests the connection with `SELECT 1`. If PostgreSQL connection drops or container is offline, it automatically falls back to a local SQLite database (`evalplatform.db`), creates tables if missing, and ensures zero application downtime.
 
@@ -456,6 +472,7 @@ def get_db():
 ## 9. 🚀 `app/main.py` *(Modified)*
 
 ### Code Snippet:
+
 ```python
 gateway = ModelGateway()
 
@@ -509,6 +526,7 @@ def gateway_generate(request: GatewayGenerateRequest, db: Session = Depends(get_
 ```
 
 ### Technical Explanation:
+
 - **Global Gateway Initialization**: Instantiates `gateway = ModelGateway()` on startup.
 - **`/providers/status` Endpoint**: Exposes live health and telemetry metrics (`HEALTHY`, `WARNING`, `UNAVAILABLE`, token usage, model maps) for dashboard visibility.
 - **`/gateway/generate` Endpoint**: Main evaluation endpoint supporting `job_type` selection ('fast', 'reasoning', 'code', 'default'), automatic failover execution, and database persistence to PostgreSQL/SQLite.

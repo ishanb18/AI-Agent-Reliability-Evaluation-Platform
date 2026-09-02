@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.database import engine, get_db, Base
 from app.models.run import Run  # noqa: F401
+from app.models.agent import Agent  # noqa: F401 — ensures agents table is created
+from app.models.test_suite import TestSuite, TestCase  # noqa: F401 — ensures test tables are created
+from app.models.eval_run import EvalRun, EvalRunCase, Evaluation  # noqa: F401 — Day 4: eval tables
 from app.providers import ModelGateway, ProviderResponse, ProviderStats
+from app.routers import agents as agents_router
+from app.routers import test_suites as test_suites_router
+from app.routers import evaluations as evaluations_router
 
 # ── Structured Logger ─────────────────────────────────────────────────────────
 log = structlog.get_logger()
@@ -45,9 +51,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AI Agent Reliability & Evaluation Platform",
     description="Provider-agnostic AI agent evaluation layer with Model Gateway, failover, and telemetry.",
-    version="0.2.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
+
+# ── Register Day 3 Routers ────────────────────────────────────────────────────
+app.include_router(agents_router.router, prefix="/agents", tags=["Agents"])
+app.include_router(test_suites_router.router, prefix="/test-suites", tags=["Test Suites"])
+
+# ── Register Day 4 Router ─────────────────────────────────────────────────────
+app.include_router(evaluations_router.router, prefix="/evaluations", tags=["Evaluations"])
 
 
 # ── Request / Response Schemas ────────────────────────────────────────────────
@@ -94,7 +107,7 @@ class LLMResponse(BaseModel):
 @app.get("/", tags=["Health"])
 def root():
     """Health check endpoint — verifies application status."""
-    return {"status": "ok", "version": "0.2.0", "env": settings.app_env}
+    return {"status": "ok", "version": "0.4.0", "env": settings.app_env}
 
 
 @app.get("/providers/status", response_model=Dict[str, ProviderStats], tags=["Providers"])
