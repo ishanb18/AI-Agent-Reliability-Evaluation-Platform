@@ -414,14 +414,14 @@ def list_evaluation_runs(
     Returns lightweight run summaries (no per-case details).
     Use GET /evaluations/{run_id}/cases to get per-case results.
     """
-    query = db.query(EvalRun)
+    query = db.query(EvalRun_model)
 
     if agent_id is not None:
-        query = query.filter(EvalRun.agent_id == agent_id)
+        query = query.filter(EvalRun_model.agent_id == agent_id)
     if status is not None:
-        query = query.filter(EvalRun.status == status)
+        query = query.filter(EvalRun_model.status == status)
 
-    runs = query.order_by(EvalRun.created_at.desc()).limit(limit).all()
+    runs = query.order_by(EvalRun_model.created_at.desc()).limit(limit).all()
     return [_run_to_response(r) for r in runs]
 
 
@@ -435,7 +435,7 @@ def get_evaluation_run(run_id: int, db: Session = Depends(get_db)):
     Returns aggregated scores (avg_score, passed_cases, failed_cases)
     but NOT the per-case breakdown. Use /cases for that.
     """
-    run = db.query(EvalRun).filter(EvalRun.id == run_id).first()
+    run = db.query(EvalRun_model).filter(EvalRun_model.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail=f"Evaluation run with id={run_id} not found")
     return _run_to_response(run)
@@ -459,7 +459,7 @@ def get_run_cases(run_id: int, db: Session = Depends(get_db)):
 
     Use this to see exactly what the agent said and how each response was scored.
     """
-    run = db.query(EvalRun).filter(EvalRun.id == run_id).first()
+    run = db.query(EvalRun_model).filter(EvalRun_model.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail=f"Evaluation run with id={run_id} not found")
 

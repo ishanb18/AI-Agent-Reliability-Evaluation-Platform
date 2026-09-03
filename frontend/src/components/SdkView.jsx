@@ -50,10 +50,21 @@ export default function SdkView({ user }) {
         }),
       });
 
-      const data = await res.json();
-      setResult(data);
+      if (!res.ok) {
+        let errMsg = `Server error (${res.status})`;
+        try {
+          const errData = await res.json();
+          errMsg = errData.detail || errMsg;
+        } catch {
+          errMsg = await res.text() || errMsg;
+        }
+        setResult({ status: 'error', output: errMsg, provider_used: '-', model_used: '-' });
+      } else {
+        const data = await res.json();
+        setResult(data);
+      }
     } catch (err) {
-      setResult({ status: 'error', output: err.message });
+      setResult({ status: 'error', output: err.message, provider_used: '-', model_used: '-' });
     } finally {
       setLoading(false);
     }

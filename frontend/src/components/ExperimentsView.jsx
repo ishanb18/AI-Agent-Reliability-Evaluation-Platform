@@ -18,6 +18,7 @@ export default function ExperimentsView({ selectedExpId, setSelectedExpId, setAc
   async function fetchExperiments() {
     try {
       const res = await fetch('/experiments');
+      if (!res.ok) return;
       const data = await res.json();
       setExperiments(data);
       if (data.length > 0 && !selectedExpId) {
@@ -32,6 +33,7 @@ export default function ExperimentsView({ selectedExpId, setSelectedExpId, setAc
     setSelectedExpId(expId);
     try {
       const res = await fetch(`/experiments/${expId}`);
+      if (!res.ok) return;
       const data = await res.json();
       setActiveExpDetail(data);
     } catch (err) {

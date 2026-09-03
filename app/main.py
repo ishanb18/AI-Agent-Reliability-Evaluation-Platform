@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.database import engine, get_db, Base
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
         try:
             with engine.connect() as conn:
                 conn.execute(text("ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'"))
+                conn.execute(text("ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS version_id INTEGER REFERENCES agent_versions(id) ON DELETE SET NULL"))
                 conn.commit()
         except Exception as ex:
             log.info("postgresql column check done", detail=str(ex))
@@ -64,6 +66,14 @@ async def lifespan(app: FastAPI):
         try:
             with database.engine.connect() as conn:
                 conn.execute(text("ALTER TABLE test_cases ADD COLUMN status VARCHAR(20) DEFAULT 'active'"))
+                conn.commit()
+        except Exception:
+            pass  # column already exists
+
+        # Ensure version_id exists in SQLite
+        try:
+            with database.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE eval_runs ADD COLUMN version_id INTEGER REFERENCES agent_versions(id) ON DELETE SET NULL"))
                 conn.commit()
         except Exception:
             pass  # column already exists

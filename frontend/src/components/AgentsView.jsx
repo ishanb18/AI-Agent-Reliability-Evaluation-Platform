@@ -19,12 +19,13 @@ export default function AgentsView({ setActiveTab, setSelectedExpId }) {
 
   useEffect(() => {
     fetchAgents();
-    fetch('/test-suites').then(r => r.json()).then(setSuites).catch(() => []);
+    fetch('/test-suites').then(r => r.ok ? r.json() : []).then(setSuites).catch(() => []);
   }, []);
 
   async function fetchAgents() {
     try {
       const res = await fetch('/agents');
+      if (!res.ok) { console.error('Agents fetch failed:', res.status); return; }
       const data = await res.json();
       setAgents(data);
       if (data.length > 0 && !selectedAgent) {
@@ -39,6 +40,7 @@ export default function AgentsView({ setActiveTab, setSelectedExpId }) {
     setSelectedAgent(agent);
     try {
       const res = await fetch(`/agents/${agent.id}/versions`);
+      if (!res.ok) { setVersions([]); return; }
       const data = await res.json();
       setVersions(data);
 
@@ -108,12 +110,16 @@ export default function AgentsView({ setActiveTab, setSelectedExpId }) {
           suite_id: parseInt(compareForm.suiteId)
         }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setShowCompareModal(false);
-        setSelectedExpId(data.experiment_id);
-        setActiveTab('experiments');
+      if (!res.ok) {
+        let msg = 'Comparison failed';
+        try { const d = await res.json(); msg = d.detail || msg; } catch { msg = await res.text() || msg; }
+        alert(msg);
+        return;
       }
+      const data = await res.json();
+      setShowCompareModal(false);
+      setSelectedExpId(data.experiment_id);
+      setActiveTab('experiments');
     } catch (err) {
       alert('Comparison failed: ' + err.message);
     }

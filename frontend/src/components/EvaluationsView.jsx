@@ -19,8 +19,8 @@ export default function EvaluationsView({ setSelectedRunId, setActiveTab, select
 
   useEffect(() => {
     fetchRuns();
-    fetch('/agents').then(r => r.json()).then(setAgents).catch(() => []);
-    fetch('/test-suites').then(r => r.json()).then(setSuites).catch(() => []);
+    fetch('/agents').then(r => r.ok ? r.json() : []).then(setAgents).catch(() => []);
+    fetch('/test-suites').then(r => r.ok ? r.json() : []).then(setSuites).catch(() => []);
   }, []);
 
   useEffect(() => {
@@ -32,6 +32,7 @@ export default function EvaluationsView({ setSelectedRunId, setActiveTab, select
   async function fetchRuns() {
     try {
       const res = await fetch('/evaluations');
+      if (!res.ok) return;
       const data = await res.json();
       setRuns(data);
       if (data.length > 0 && !selectedRunId) {
@@ -46,6 +47,7 @@ export default function EvaluationsView({ setSelectedRunId, setActiveTab, select
     setSelectedRunId(runId);
     try {
       const res = await fetch(`/evaluations/${runId}`);
+      if (!res.ok) return;
       const data = await res.json();
       setActiveRunDetail(data);
     } catch (err) {
@@ -57,6 +59,7 @@ export default function EvaluationsView({ setSelectedRunId, setActiveTab, select
     setRunForm(prev => ({ ...prev, agentId, versionId: '' }));
     try {
       const res = await fetch(`/agents/${agentId}/versions`);
+      if (!res.ok) { setVersions([]); return; }
       const data = await res.json();
       setVersions(data);
     } catch (err) {
@@ -77,12 +80,16 @@ export default function EvaluationsView({ setSelectedRunId, setActiveTab, select
           judge_provider: runForm.judgeProvider,
         }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setShowRunModal(false);
-        setSelectedRunId(data.run_id);
-        setActiveTab('live'); // Switch to live SSE progress view!
+      if (!res.ok) {
+        let msg = 'Error launching run';
+        try { const d = await res.json(); msg = d.detail || msg; } catch { msg = await res.text() || msg; }
+        alert(msg);
+        return;
       }
+      const data = await res.json();
+      setShowRunModal(false);
+      setSelectedRunId(data.run_id);
+      setActiveTab('live');
     } catch (err) {
       alert('Error launching run: ' + err.message);
     }

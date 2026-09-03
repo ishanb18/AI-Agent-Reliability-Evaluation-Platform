@@ -16,6 +16,7 @@ export default function SuitesView() {
   async function fetchSuites() {
     try {
       const res = await fetch('/test-suites');
+      if (!res.ok) return;
       const data = await res.json();
       setSuites(data);
       if (data.length > 0 && !selectedSuite) {
@@ -30,6 +31,7 @@ export default function SuitesView() {
     setSelectedSuite(suite);
     try {
       const res = await fetch(`/test-suites/${suite.id}`);
+      if (!res.ok) return;
       const data = await res.json();
       setCases(data.test_cases || data.cases || []);
     } catch (err) {
