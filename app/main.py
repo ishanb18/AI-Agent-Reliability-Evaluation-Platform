@@ -1,8 +1,11 @@
+import os
 import structlog
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -12,10 +15,17 @@ from app.models.run import Run  # noqa: F401
 from app.models.agent import Agent  # noqa: F401 — ensures agents table is created
 from app.models.test_suite import TestSuite, TestCase  # noqa: F401 — ensures test tables are created
 from app.models.eval_run import EvalRun, EvalRunCase, Evaluation  # noqa: F401 — Day 4: eval tables
+from app.models.experiment import Experiment  # noqa: F401 — Day 6: experiments table
+from app.models.agent_version import AgentVersion  # noqa: F401 — Day 7: versioning table
+from app.models.user import User  # noqa: F401 — User model
 from app.providers import ModelGateway, ProviderResponse, ProviderStats
 from app.routers import agents as agents_router
 from app.routers import test_suites as test_suites_router
 from app.routers import evaluations as evaluations_router
+from app.routers import experiments as experiments_router
+from app.routers import agent_versions as agent_versions_router
+from app.routers import auth as auth_router
+from app.routers import sdk_demo as sdk_demo_router
 
 # ── Structured Logger ─────────────────────────────────────────────────────────
 log = structlog.get_logger()
@@ -34,6 +44,13 @@ async def lifespan(app: FastAPI):
     log.info("startup: creating database tables if they do not exist")
     try:
         Base.metadata.create_all(bind=engine)
+        # Ensure status column exists in PostgreSQL
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'"))
+                conn.commit()
+        except Exception as ex:
+            log.info("postgresql column check done", detail=str(ex))
         log.info("startup: database & gateway ready", env=settings.app_env)
     except Exception as e:
         log.warning("postgresql unavailable, falling back to local sqlite engine", error=str(e))
@@ -42,6 +59,14 @@ async def lifespan(app: FastAPI):
         database.engine = create_engine("sqlite:///./evalplatform.db", connect_args={"check_same_thread": False})
         database.SessionLocal.configure(bind=database.engine)
         Base.metadata.create_all(bind=database.engine)
+        
+        # Ensure status column exists in SQLite
+        try:
+            with database.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE test_cases ADD COLUMN status VARCHAR(20) DEFAULT 'active'"))
+                conn.commit()
+        except Exception:
+            pass  # column already exists
         log.info("startup: fallback sqlite database ready")
     yield
     log.info("shutdown: cleanup complete")
@@ -51,17 +76,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AI Agent Reliability & Evaluation Platform",
     description="Provider-agnostic AI agent evaluation layer with Model Gateway, failover, and telemetry.",
-    version="0.5.0",
+    version="0.7.0",
     lifespan=lifespan,
 )
 
-# ── Register Day 3 Routers ────────────────────────────────────────────────────
+# ── Register Routers ──────────────────────────────────────────────────────────
+app.include_router(auth_router.router, prefix="/auth", tags=["Auth"])
 app.include_router(agents_router.router, prefix="/agents", tags=["Agents"])
 app.include_router(test_suites_router.router, prefix="/test-suites", tags=["Test Suites"])
-
-# ── Register Day 4 Router ─────────────────────────────────────────────────────
 app.include_router(evaluations_router.router, prefix="/evaluations", tags=["Evaluations"])
-
+app.include_router(experiments_router.router, prefix="/experiments", tags=["Experiments"])
+app.include_router(agent_versions_router.router, prefix="/agents", tags=["Agent Versions"])
+app.include_router(sdk_demo_router.router, prefix="/sdk", tags=["SDK Playground"])
 
 # ── Request / Response Schemas ────────────────────────────────────────────────
 class LLMRequest(BaseModel):
@@ -107,7 +133,7 @@ class LLMResponse(BaseModel):
 @app.get("/", tags=["Health"])
 def root():
     """Health check endpoint — verifies application status."""
-    return {"status": "ok", "version": "0.4.0", "env": settings.app_env}
+    return {"status": "ok", "version": "0.6.0", "env": settings.app_env}
 
 
 @app.get("/providers/status", response_model=Dict[str, ProviderStats], tags=["Providers"])
@@ -196,3 +222,29 @@ def test_llm(request: LLMRequest, db: Session = Depends(get_db)):
         enable_fallback=True,
     )
     return gateway_generate(request=gw_req, db=db)
+
+
+# ── Mount React Dashboard Frontend ───────────────────────────────────────────
+frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="react-assets")
+
+    @app.get("/ui", tags=["Dashboard UI"])
+    @app.get("/ui/{path:path}", tags=["Dashboard UI"])
+    def serve_react_dashboard(path: str = ""):
+        """Serve compiled React SPA dashboard."""
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+
+    @app.get("/", tags=["Root Redirect"])
+    def root_redirect():
+        """Redirect root URL to Dashboard UI."""
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+else:
+    # Fallback to app/static if react dist not built yet
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    if os.path.exists(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+        @app.get("/ui", tags=["Dashboard UI"])
+        def serve_static_dashboard():
+            return FileResponse(os.path.join(static_dir, "index.html"))

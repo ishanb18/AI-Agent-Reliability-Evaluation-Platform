@@ -55,6 +55,10 @@ class EvalRun(Base):
     agent_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("agents.id"), nullable=False, index=True
     )
+    # Which specific version of the agent? (nullable = unversioned, backwards compatible)
+    version_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("agent_versions.id"), nullable=True, index=True
+    )
     # Which test suite are we running? (must exist in test_suites table)
     suite_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("test_suites.id"), nullable=False, index=True

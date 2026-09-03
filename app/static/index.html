@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — AI Reliability Platform</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Nav -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-title">Antigravity Eval</div>
+      </div>
+      <ul class="nav-list">
+        <li class="nav-item active"><a href="/ui">📊 Dashboard</a></li>
+        <li class="nav-item"><a href="/ui/agents">🤖 Agents & Versions</a></li>
+        <li class="nav-item"><a href="/ui/suites">🧪 Test Suites</a></li>
+        <li class="nav-item"><a href="/ui/evaluations">📈 Eval Runs</a></li>
+        <li class="nav-item"><a href="/ui/experiments">🔬 Experiments</a></li>
+      </ul>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="header-bar">
+        <div class="page-title">
+          <h1>Platform Overview</h1>
+          <p>Real-time reliability telemetry, provider health, and evaluation runs</p>
+        </div>
+        <div class="header-actions">
+          <a href="/ui/agents" class="btn btn-primary">+ Register Agent</a>
+          <a href="/ui/evaluations" class="btn btn-secondary">▶ Run Evaluation</a>
+        </div>
+      </div>
+
+      <!-- Stats Grid -->
+      <div class="grid-stats">
+        <div class="stat-card">
+          <span class="stat-label">Registered Agents</span>
+          <div class="stat-value" id="stat-agents">0</div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Test Suites</span>
+          <div class="stat-value" id="stat-suites">0</div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Total Eval Runs</span>
+          <div class="stat-value" id="stat-runs">0</div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Experiments</span>
+          <div class="stat-value" id="stat-experiments">0</div>
+        </div>
+      </div>
+
+      <!-- Provider Status Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Model Gateway Provider Status</div>
+          <span class="badge badge-info" id="provider-cascade-pill">Cascade Active</span>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Status</th>
+                <th>Daily Quota / Capacity</th>
+                <th>Fallback Support</th>
+              </tr>
+            </thead>
+            <tbody id="provider-table-body">
+              <tr><td colspan="4" style="color: var(--text-muted);">Loading providers...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Recent Activity Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Recent Evaluation Runs</div>
+          <a href="/ui/evaluations" class="btn btn-secondary" style="font-size:0.8rem; padding: 0.4rem 0.8rem;">View All</a>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Run ID</th>
+                <th>Agent</th>
+                <th>Status</th>
+                <th>Passed / Total</th>
+                <th>Avg Score</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody id="recent-runs-body">
+              <tr><td colspan="6" style="color: var(--text-muted);">Loading recent activity...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

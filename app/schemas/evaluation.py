@@ -14,6 +14,7 @@ from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 
 
+
 # ── Request Schemas ───────────────────────────────────────────────────────────
 
 class EvalRunCreate(BaseModel):
@@ -21,7 +22,8 @@ class EvalRunCreate(BaseModel):
     Request body for POST /evaluations/run.
 
     The user provides which agent to evaluate and which test suite to run.
-    Optionally they can override the judge model (defaults to Gemini Flash).
+    Optionally they can select specific metrics (from POST /evaluations/discover)
+    and override the judge model (defaults to Gemini Flash).
     """
     agent_id: int = Field(
         description="ID of the agent to evaluate (must be a REST API agent with an endpoint)",
@@ -30,6 +32,23 @@ class EvalRunCreate(BaseModel):
     suite_id: int = Field(
         description="ID of the test suite to run against the agent",
         examples=[1],
+    )
+    version_id: Optional[int] = Field(
+        default=None,
+        description=(
+            "Evaluate a specific agent version. If None, uses the parent agent's config. "
+            "Get version IDs from GET /agents/{id}/versions."
+        ),
+        examples=[2],
+    )
+    selected_metrics: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "Which metrics to evaluate. If None, runs ALL available metrics. "
+            "Get the available list from POST /evaluations/discover first. "
+            "Example: ['relevance', 'safety', 'correctness']"
+        ),
+        examples=[["relevance", "safety", "correctness", "tool_accuracy"]],
     )
     judge_provider: Optional[str] = Field(
         default="gemini",
@@ -41,6 +60,103 @@ class EvalRunCreate(BaseModel):
         description="Specific judge model name. If None, provider default is used.",
         examples=["gemini-1.5-flash"],
     )
+
+
+# ── Discovery Schemas (Day 6) ─────────────────────────────────────────────────
+
+class EvalDiscoveryRequest(BaseModel):
+    """
+    Request body for POST /evaluations/discover.
+
+    Probes the agent with a real test case and returns
+    per-metric availability report with how-to-enable guidance.
+    """
+    agent_id: int = Field(
+        description="ID of the agent to probe",
+        examples=[1],
+    )
+    suite_id: int = Field(
+        description="ID of the test suite to use as probe context",
+        examples=[1],
+    )
+
+
+class MetricRequirement(BaseModel):
+    """
+    Availability status and requirements for one evaluation metric.
+    """
+    metric: str = Field(description="Metric name (e.g. 'correctness', 'faithfulness')")
+    available: bool = Field(description="Whether this metric can run right now")
+    reason: str = Field(description="Why it is available or blocked")
+    agent_requirement: Optional[str] = Field(
+        default=None,
+        description="What the agent's response needs to include",
+    )
+    test_case_requirement: Optional[str] = Field(
+        default=None,
+        description="What the test cases need to have filled in",
+    )
+    how_to_enable: Optional[str] = Field(
+        default=None,
+        description="Step-by-step instructions to make this metric available",
+    )
+    group: Optional[str] = Field(
+        default=None,
+        description="Metric group: 'quality', 'performance', 'rag', 'tools'",
+    )
+
+
+class EvalDiscoveryResponse(BaseModel):
+    """
+    Response for POST /evaluations/discover.
+
+    Contains the full metric availability report after probing the agent.
+    Use 'available_metrics' as the list to pass into selected_metrics
+    when calling POST /evaluations/run.
+    """
+    agent_id: int
+    suite_id: int
+    agent_name: str
+    suite_name: str
+
+    # How the probe went
+    probe_status: str = Field(description="'success', 'failed', or 'timeout'")
+    probe_error: Optional[str] = Field(default=None, description="Error message if probe failed")
+    probe_latency_ms: Optional[float] = None
+    probe_input_used: Optional[str] = Field(
+        default=None, description="The test case input used for the probe"
+    )
+
+    # What the agent returned
+    detected_fields: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Detected response fields: {'answer': 'response', 'tools': 'tool_calls', ...}",
+    )
+    sample_agent_response: Optional[Dict] = Field(
+        default=None,
+        description="The actual agent response (truncated) for debugging",
+    )
+
+    # The metric availability report
+    metrics: List[MetricRequirement] = Field(
+        default_factory=list,
+        description="Per-metric availability with reasons and how-to-enable instructions",
+    )
+    available_metrics: List[str] = Field(
+        default_factory=list,
+        description="Metrics you can select for POST /evaluations/run right now",
+    )
+    unavailable_metrics: List[str] = Field(
+        default_factory=list,
+        description="Metrics that need additional setup (see each metric's how_to_enable)",
+    )
+
+    # What to do next
+    next_steps: Optional[str] = Field(
+        default=None,
+        description="Guidance on what to do next",
+    )
+
 
 
 # ── Evaluation Score Schemas ──────────────────────────────────────────────────

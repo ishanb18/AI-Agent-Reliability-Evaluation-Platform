@@ -11,15 +11,17 @@ Endpoints:
   GET  /evaluations/{run_id}/report              Full analysis report (Day 5)
 """
 
+import asyncio
 import json
 from typing import List, Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.db.database import get_db
-from app.models.eval_run import EvalRun, EvalRunCase, Evaluation
+from app.db.database import get_db, SessionLocal
+from app.models.eval_run import EvalRun as EvalRun_model, EvalRunCase, Evaluation
 from app.providers import ModelGateway
 from app.schemas.evaluation import (
     EvalRunCreate,
@@ -27,9 +29,13 @@ from app.schemas.evaluation import (
     EvalRunCaseResponse,
     EvaluationResponse,
     EvalRunDetailResponse,
+    EvalDiscoveryRequest,
+    EvalDiscoveryResponse,
+    MetricRequirement,
 )
 from app.schemas.analysis import FailureReport, AnalysisReport
-from app.evaluation import orchestrator, failure_analyzer, report_generator
+from app.evaluation import orchestrator, failure_analyzer, report_generator, discovery
+from app.core import event_bus
 
 log = structlog.get_logger()
 router = APIRouter()
@@ -116,7 +122,7 @@ def _run_case_to_response(run_case: EvalRunCase) -> EvalRunCaseResponse:
     )
 
 
-def _run_to_response(run: EvalRun) -> EvalRunResponse:
+def _run_to_response(run: EvalRun_model) -> EvalRunResponse:
     """Convert EvalRun ORM object to EvalRunResponse Pydantic model."""
     return EvalRunResponse(
         id=run.id,
@@ -135,55 +141,262 @@ def _run_to_response(run: EvalRun) -> EvalRunResponse:
     )
 
 
-# ── Endpoint 1: Trigger Evaluation Run ───────────────────────────────────────
+# ── Endpoint 1: Trigger Evaluation Run (Async — Day 7) ─────────────────────────
 
-@router.post("/run", response_model=EvalRunResponse, status_code=201)
+@router.post("/run", status_code=202)
 def trigger_evaluation_run(
     run_request: EvalRunCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """
-    Trigger a new evaluation run: run all test cases from a suite against an agent.
+    Trigger a new evaluation run. Returns immediately with run_id.
 
-    What happens:
-    1. Validates the agent exists and has a REST endpoint.
-    2. Validates the test suite exists and has test cases.
-    3. Invokes the agent for each test case (POST to agent's endpoint).
-    4. Parses each response using the agent's response_mapping.
-    5. Runs deterministic + LLM-as-a-Judge evaluators on each response.
-    6. Stores EvalRunCase + Evaluation records in DB for each case.
-    7. Returns the completed EvalRun with aggregated scores.
-
-    Note: This runs synchronously. For large suites (100+ cases), this
-    endpoint may take several minutes. Async/background execution is planned
-    for a future day.
+    The evaluation runs in the background. Track progress via:
+      GET /evaluations/{run_id}/stream  ← real-time SSE stream (recommended)
+      GET /evaluations/{run_id}         ← poll for completion
     """
+    import datetime
+    from app.models.agent import Agent
+    from app.models.test_suite import TestSuite
+
     log.info(
         "evaluation run requested",
         agent_id=run_request.agent_id,
         suite_id=run_request.suite_id,
         judge_provider=run_request.judge_provider,
+        version_id=run_request.version_id,
     )
 
     gateway = get_gateway()
 
-    try:
-        eval_run = orchestrator.run_evaluation(
-            agent_id=run_request.agent_id,
-            suite_id=run_request.suite_id,
-            db=db,
-            gateway=gateway,
-            judge_provider=run_request.judge_provider or "gemini",
-            judge_model=run_request.judge_model,
-        )
-    except ValueError as e:
-        # Validation errors (agent not found, no endpoint, empty suite)
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        log.error("evaluation run failed with unexpected error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Evaluation run failed: {str(e)}")
+    # Validate upfront before queuing
+    agent = db.query(Agent).filter(Agent.id == run_request.agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent id={run_request.agent_id} not found")
+    if agent.connection_type != "rest_api" or not agent.endpoint:
+        raise HTTPException(status_code=400, detail=f"Agent must be REST API type with endpoint")
+    suite = db.query(TestSuite).filter(TestSuite.id == run_request.suite_id).first()
+    if not suite:
+        raise HTTPException(status_code=404, detail=f"Test suite id={run_request.suite_id} not found")
 
-    return _run_to_response(eval_run)
+    # Create EvalRun immediately so we have a run_id to return
+    eval_run = EvalRun_model(
+        agent_id=run_request.agent_id,
+        suite_id=run_request.suite_id,
+        version_id=run_request.version_id,
+        status="queued",
+        total_cases=0,
+        judge_provider=run_request.judge_provider or "gemini",
+        judge_model=run_request.judge_model,
+        started_at=datetime.datetime.now(datetime.timezone.utc),
+    )
+    db.add(eval_run)
+    db.commit()
+    db.refresh(eval_run)
+    run_id = eval_run.id
+
+    # Queue background evaluation
+    background_tasks.add_task(
+        _run_evaluation_background,
+        run_id=run_id,
+        agent_id=run_request.agent_id,
+        suite_id=run_request.suite_id,
+        judge_provider=run_request.judge_provider or "gemini",
+        judge_model=run_request.judge_model,
+        selected_metrics=run_request.selected_metrics,
+        version_id=run_request.version_id,
+        gateway=gateway,
+    )
+
+    log.info("evaluation queued", run_id=run_id)
+
+    return {
+        "run_id": run_id,
+        "status": "queued",
+        "agent_id": run_request.agent_id,
+        "suite_id": run_request.suite_id,
+        "version_id": run_request.version_id,
+        "message": f"Evaluation queued. Stream: GET /evaluations/{run_id}/stream",
+        "stream_url": f"/evaluations/{run_id}/stream",
+    }
+
+
+def _run_evaluation_background(
+    run_id: int,
+    agent_id: int,
+    suite_id: int,
+    judge_provider: str,
+    judge_model: Optional[str],
+    selected_metrics: Optional[List[str]],
+    version_id: Optional[int],
+    gateway,
+):
+    """Background worker: runs evaluation and emits events to event_bus."""
+    db = SessionLocal()
+    q: asyncio.Queue = asyncio.Queue()
+    event_bus._queues[run_id] = q
+
+    def emit_sync(event: dict):
+        q.put_nowait(json.dumps(event))
+
+    try:
+        # Mark as running
+        run = db.query(EvalRun_model).filter(EvalRun_model.id == run_id).first()
+        if run:
+            run.status = "running"
+            db.commit()
+
+        emit_sync({"event": "started", "run_id": run_id})
+
+        try:
+            completed = orchestrator.run_evaluation(
+                agent_id=agent_id,
+                suite_id=suite_id,
+                db=db,
+                gateway=gateway,
+                judge_provider=judge_provider,
+                judge_model=judge_model,
+                selected_metrics=selected_metrics,
+                version_id=version_id,
+                event_emitter=emit_sync,
+            )
+            emit_sync({
+                "event": "run_complete",
+                "run_id": run_id,
+                "avg_score": completed.avg_score,
+                "passed": completed.passed_cases,
+                "failed": completed.failed_cases,
+                "total": completed.total_cases,
+                "status": "completed",
+            })
+        except Exception as e:
+            log.error("background eval failed", run_id=run_id, error=str(e))
+            emit_sync({"event": "error", "run_id": run_id, "message": str(e)})
+            r = db.query(EvalRun_model).filter(EvalRun_model.id == run_id).first()
+            if r:
+                r.status = "failed"
+                db.commit()
+    finally:
+        q.put_nowait(None)   # terminal sentinel — closes SSE stream
+        db.close()
+        # Clean up queue after a short delay
+        import threading, time
+        def cleanup():
+            time.sleep(5)
+            event_bus.cleanup_queue(run_id)
+        threading.Thread(target=cleanup, daemon=True).start()
+
+
+# ── SSE Stream Endpoint (Day 7) ──────────────────────────────────────────────
+
+@router.get("/stream/{run_id}")
+async def stream_eval_progress(run_id: int, db: Session = Depends(get_db)):
+    """
+    Server-Sent Events stream for real-time evaluation progress.
+
+    Connect right after POST /evaluations/run. Events:
+      {"event": "started", "run_id": 12}
+      {"event": "case_done", "case": 3, "total": 35, "score": 0.88, "status": "success"}
+      {"event": "run_complete", "avg_score": 0.79, "passed": 28, "failed": 7}
+      {"event": "error", "message": "..."}
+
+    If run already finished, returns a single run_complete event immediately.
+    """
+    # Already completed — no live queue
+    if run_id not in event_bus._queues:
+        run = db.query(EvalRun_model).filter(EvalRun_model.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        if run.status in ("completed", "failed"):
+            async def already_done():
+                yield f"data: {json.dumps({'event': run.status, 'run_id': run_id, 'avg_score': run.avg_score, 'passed': run.passed_cases, 'failed': run.failed_cases, 'total': run.total_cases})}\n\n"
+            return StreamingResponse(already_done(), media_type="text/event-stream")
+
+    async def event_generator():
+        async for event_str in event_bus.subscribe(run_id):
+            yield f"data: {event_str}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+
+# ── Endpoint: Discover Capabilities (Day 6) ────────────────────────────────────
+
+@router.post("/discover", response_model=EvalDiscoveryResponse)
+def discover_evaluation_capabilities(
+    request: EvalDiscoveryRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Probe an agent and discover which evaluation metrics are available.
+
+    RECOMMENDED first step before running POST /evaluations/run.
+
+    What this does:
+    1. Looks up the agent and test suite
+    2. Picks a representative test case from the suite
+    3. Sends it to the agent's endpoint
+    4. Analyzes the response format
+    5. Returns per-metric availability with:
+       - Whether each metric can run right now
+       - Why it can or cannot run
+       - Exact step-by-step instructions to ENABLE unavailable metrics
+       - The 'available_metrics' list to copy into POST /evaluations/run
+
+    Example flow:
+      POST /evaluations/discover  → {"available_metrics": ["relevance", "safety", "latency"]}
+      POST /evaluations/run       → {"selected_metrics": ["relevance", "safety", "latency"]}
+    """
+    from app.models.agent import Agent
+    from app.models.test_suite import TestSuite
+
+    agent = db.query(Agent).filter(Agent.id == request.agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent id={request.agent_id} not found")
+    if agent.connection_type != "rest_api" or not agent.endpoint:
+        raise HTTPException(
+            status_code=400,
+            detail="Discovery only available for REST API agents with an endpoint",
+        )
+
+    suite = db.query(TestSuite).filter(TestSuite.id == request.suite_id).first()
+    if not suite:
+        raise HTTPException(status_code=404, detail=f"Test suite id={request.suite_id} not found")
+
+    result = discovery.discover_capabilities(agent=agent, suite=suite, db=db)
+
+    return EvalDiscoveryResponse(
+        agent_id=result["agent_id"],
+        suite_id=result["suite_id"],
+        agent_name=result["agent_name"],
+        suite_name=result["suite_name"],
+        probe_status=result["probe_status"],
+        probe_error=result.get("probe_error"),
+        probe_latency_ms=result.get("probe_latency_ms"),
+        probe_input_used=result.get("probe_input_used"),
+        detected_fields=result.get("detected_fields", {}),
+        sample_agent_response=result.get("sample_agent_response"),
+        metrics=[
+            MetricRequirement(
+                metric=m["metric"],
+                available=m["available"],
+                reason=m["reason"],
+                agent_requirement=m.get("agent_requirement"),
+                test_case_requirement=m.get("test_case_requirement"),
+                how_to_enable=m.get("how_to_enable"),
+                group=m.get("group"),
+            )
+            for m in result.get("metrics", [])
+        ],
+        available_metrics=result.get("available_metrics", []),
+        unavailable_metrics=result.get("unavailable_metrics", []),
+        next_steps=result.get("next_steps"),
+    )
 
 
 # ── Endpoint 2: List All Runs ─────────────────────────────────────────────────
@@ -326,5 +539,121 @@ def get_analysis_report(run_id: int, db: Session = Depends(get_db)):
         result = report_generator.generate_report(run_id, db)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    return result
+
+
+@router.get("/{run_id}/export")
+def export_analysis_report(
+    run_id: int,
+    format: str = Query(default="markdown", description="Export format: markdown or json"),
+    db: Session = Depends(get_db),
+):
+    """
+    Export the evaluation report as a downloadable Markdown document or JSON structure.
+    """
+    from fastapi.responses import Response
+
+    try:
+        report = report_generator.generate_report(run_id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if format.lower() == "json":
+        return report
+
+    # Render Markdown report
+    md = [
+        f"# Evaluation Report — Run #{run_id}",
+        f"**Agent**: {report.agent_summary.name} (v{report.agent_summary.version})",
+        f"**Provider / Model**: {report.agent_summary.provider} / {report.agent_summary.model}",
+        f"**Overall Score**: `{report.performance.avg_score or 'N/A'}`",
+        "",
+        "## Performance Overview",
+        f"- **Total Cases**: {report.performance.total_cases}",
+        f"- **Passed**: {report.performance.passed_cases}",
+        f"- **Failed**: {report.performance.failed_cases}",
+        f"- **P50 Latency**: {report.performance.latency_p50_ms} ms",
+        f"- **P95 Latency**: {report.performance.latency_p95_ms} ms",
+        f"- **Est. Cost / Run**: ${report.performance.estimated_cost_per_run:.4f}",
+        "",
+        "## Metric Averages",
+    ]
+    for metric, val in report.performance.metric_averages.items():
+        score_str = f"{val * 100:.1f}%" if isinstance(val, (int, float)) else "N/A"
+        md.append(f"- **{metric}**: {score_str}")
+
+    md.extend(["", "## Key Recommendations"])
+    for rec in report.failure_analysis.recommendations:
+        md.append(f"1. {rec}")
+
+    md.extend(["", "## Model Alternatives & Price Comparison"])
+    for alt in report.alternatives:
+        md.append(f"- **{alt.model}** ({alt.provider}): {alt.cost_per_m_input} — *{alt.notes}*")
+
+    md_content = "\n".join(md)
+    filename = f"eval_report_run_{run_id}.md"
+
+    return Response(
+        content=md_content,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.post("/gate")
+def cicd_deployment_gate(
+    run_id: int = Query(..., description="Evaluation run ID to evaluate for deployment"),
+    min_score: float = Query(0.70, description="Minimum acceptable average correctness score (0.0 to 1.0)"),
+    max_latency_p95: float = Query(5000.0, description="Maximum P95 latency in ms"),
+    db: Session = Depends(get_db)
+):
+    """
+    CI/CD Deployment Gate API Endpoint.
+    
+    Evaluates whether an evaluation run meets quality and performance criteria.
+    Returns HTTP 200 with verdict='PASS' if deployable, or HTTP 422 if failed.
+    """
+    run = db.query(EvalRun_model).filter(EvalRun_model.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Run #{run_id} not found")
+
+    cases = db.query(EvalRunCase).filter(EvalRunCase.run_id == run_id).all()
+    if not cases:
+        raise HTTPException(status_code=400, detail=f"Run #{run_id} has no completed test cases")
+
+    total_cases = len(cases)
+    scores = []
+    latencies = []
+
+    for c in cases:
+        evals = db.query(Evaluation).filter(Evaluation.run_case_id == c.id).all()
+        for ev in evals:
+            if ev.score is not None:
+                scores.append(ev.score)
+        if c.latency_ms is not None:
+            latencies.append(c.latency_ms)
+
+    avg_score = round(sum(scores) / len(scores), 3) if scores else 0.0
+    latencies.sort()
+    p95_index = int(0.95 * len(latencies)) if latencies else 0
+    p95_latency = latencies[p95_index] if latencies else 0.0
+
+    passed = (avg_score >= min_score) and (p95_latency <= max_latency_p95)
+    verdict = "PASS" if passed else "FAIL"
+
+    result = {
+        "run_id": run_id,
+        "verdict": verdict,
+        "deployable": passed,
+        "avg_score": avg_score,
+        "min_score_required": min_score,
+        "p95_latency_ms": p95_latency,
+        "max_latency_p95_allowed": max_latency_p95,
+        "total_cases_evaluated": total_cases,
+    }
+
+    if not passed:
+        raise HTTPException(status_code=422, detail=result)
 
     return result

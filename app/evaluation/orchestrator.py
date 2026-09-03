@@ -278,18 +278,14 @@ def _score_case(
     gateway,
     judge_provider: str,
     judge_model: Optional[str],
+    selected_metrics: Optional[List[str]] = None,
 ) -> tuple:
     """
-    Run all applicable evaluators on one test case and return the scores.
+    Run evaluators on one test case.
 
-    Decides which metrics to run based on what data is available:
-      - Always: relevance, safety, latency_score, cost
-      - If expected_answer exists: correctness, completeness
-      - If context_chunks exist: faithfulness
-      - If tools data exists: tool_accuracy, trajectory
-      - If agent has system_prompt: instruction_following
-
-    Skipped metrics are recorded with the reason why they were skipped.
+    If selected_metrics is provided, only those metrics are run.
+    Metrics not in the list are added to metrics_skipped with reason
+    'not selected by user'.
 
     Returns:
         (scores dict, reasoning dict, metrics_evaluated list, metrics_skipped dict)
@@ -298,6 +294,12 @@ def _score_case(
     reasoning: Dict[str, str] = {}
     metrics_evaluated: List[str] = []
     metrics_skipped: Dict[str, str] = {}
+
+    # Helper: should we run this metric?
+    def _should_run(metric: str) -> bool:
+        if selected_metrics is None:
+            return True  # None = run everything
+        return metric in selected_metrics
 
     answer = parsed_data.get("answer")
     expected_answer = test_case.expected_answer
@@ -323,8 +325,10 @@ def _score_case(
     )
     metrics_evaluated.append("estimated_cost")
 
-    # ── LLM Judge: Relevance (always runs) ───────────────────────────────────
-    if answer:
+    # ── LLM Judge: Relevance ──────────────────────────────────────────────────
+    if not _should_run("relevance"):
+        metrics_skipped["relevance"] = "not selected by user"
+    elif answer:
         score, reason = llm_judge.evaluate_relevance(question, answer, gateway, judge_provider, judge_model)
         scores["relevance"] = score
         reasoning["relevance"] = reason
@@ -335,8 +339,10 @@ def _score_case(
     else:
         metrics_skipped["relevance"] = "agent returned no answer text"
 
-    # ── LLM Judge: Safety (always runs — uses category-aware rubric) ─────────
-    if answer:
+    # ── LLM Judge: Safety ─────────────────────────────────────────────────────
+    if not _should_run("safety_score"):
+        metrics_skipped["safety_score"] = "not selected by user"
+    elif answer:
         score, reason = llm_judge.evaluate_safety(
             question, answer, gateway, judge_provider, judge_model,
             category=test_case.category,
@@ -350,8 +356,10 @@ def _score_case(
     else:
         metrics_skipped["safety_score"] = "agent returned no answer text"
 
-    # ── LLM Judge: Correctness (needs expected_answer, uses category rubric) ──
-    if answer and expected_answer:
+    # ── LLM Judge: Correctness ────────────────────────────────────────────────
+    if not _should_run("correctness"):
+        metrics_skipped["correctness"] = "not selected by user"
+    elif answer and expected_answer:
         score, reason = llm_judge.evaluate_correctness(
             question, answer, expected_answer, gateway, judge_provider, judge_model,
             category=test_case.category,
@@ -365,8 +373,10 @@ def _score_case(
     else:
         metrics_skipped["correctness"] = "no expected_answer in test case"
 
-    # ── LLM Judge: Completeness (needs expected_answer, uses category rubric) ─
-    if answer and expected_answer:
+    # ── LLM Judge: Completeness ───────────────────────────────────────────────
+    if not _should_run("completeness"):
+        metrics_skipped["completeness"] = "not selected by user"
+    elif answer and expected_answer:
         score, reason = llm_judge.evaluate_completeness(
             question, answer, expected_answer, gateway, judge_provider, judge_model,
             category=test_case.category,
@@ -380,8 +390,10 @@ def _score_case(
     else:
         metrics_skipped["completeness"] = "no expected_answer in test case"
 
-    # ── LLM Judge: Faithfulness (needs context chunks from RAG) ───────────────
-    if answer and context_chunks:
+    # ── LLM Judge: Faithfulness ───────────────────────────────────────────────
+    if not _should_run("faithfulness"):
+        metrics_skipped["faithfulness"] = "not selected by user"
+    elif answer and context_chunks:
         score, reason = llm_judge.evaluate_faithfulness(
             question, answer, context_chunks, gateway, judge_provider, judge_model
         )
@@ -392,33 +404,30 @@ def _score_case(
         else:
             metrics_skipped["faithfulness"] = reason
     else:
-        metrics_skipped["faithfulness"] = "no context chunks in agent response (not a RAG agent or RAG context not returned)"
+        metrics_skipped["faithfulness"] = "no context chunks in agent response"
 
-    # ── Deterministic: Tool Accuracy (needs tools from both sides) ────────────
-    if actual_tools and expected_tools:
+    # ── Deterministic: Tool Accuracy ──────────────────────────────────────────
+    if not _should_run("tool_accuracy"):
+        metrics_skipped["tool_accuracy"] = "not selected by user"
+    elif actual_tools and expected_tools:
         scores["tool_accuracy"] = deterministic.evaluate_tool_accuracy(actual_tools, expected_tools)
-        reasoning["tool_accuracy"] = (
-            f"Agent called: {actual_tools}. Expected: {expected_tools}. "
-            f"Score: {scores['tool_accuracy']}"
-        )
+        reasoning["tool_accuracy"] = f"Agent called: {actual_tools}. Expected: {expected_tools}."
         metrics_evaluated.append("tool_accuracy")
     elif actual_tools and not expected_tools:
         metrics_skipped["tool_accuracy"] = "agent used tools but test case has no expected_tools defined"
     elif not actual_tools and expected_tools:
-        # Agent called NO tools but we expected some → that's a failure (score 0)
         scores["tool_accuracy"] = 0.0
         reasoning["tool_accuracy"] = f"Agent called no tools. Expected: {expected_tools}."
         metrics_evaluated.append("tool_accuracy")
     else:
         metrics_skipped["tool_accuracy"] = "no tools in agent response and no expected_tools in test case"
 
-    # ── Deterministic: Trajectory (needs tools from both sides) ───────────────
-    if actual_tools and expected_tools:
+    # ── Deterministic: Trajectory ─────────────────────────────────────────────
+    if not _should_run("trajectory_score"):
+        metrics_skipped["trajectory_score"] = "not selected by user"
+    elif actual_tools and expected_tools:
         scores["trajectory_score"] = deterministic.evaluate_trajectory(actual_tools, expected_tools)
-        reasoning["trajectory_score"] = (
-            f"Tool sequence: {actual_tools}. Expected order: {expected_tools}. "
-            f"Score: {scores['trajectory_score']}"
-        )
+        reasoning["trajectory_score"] = f"Tool sequence: {actual_tools}. Expected: {expected_tools}."
         metrics_evaluated.append("trajectory_score")
     elif not actual_tools and expected_tools:
         scores["trajectory_score"] = 0.0
@@ -427,8 +436,10 @@ def _score_case(
     else:
         metrics_skipped["trajectory_score"] = "tool data unavailable for sequence comparison"
 
-    # ── LLM Judge: Instruction Following (needs system_prompt) ───────────────
-    if answer and system_prompt:
+    # ── LLM Judge: Instruction Following ─────────────────────────────────────
+    if not _should_run("instruction_following"):
+        metrics_skipped["instruction_following"] = "not selected by user"
+    elif answer and system_prompt:
         score, reason = llm_judge.evaluate_instruction_following(
             question, answer, system_prompt, gateway, judge_provider, judge_model
         )
@@ -453,36 +464,18 @@ def run_evaluation(
     gateway,
     judge_provider: str = "gemini",
     judge_model: Optional[str] = None,
+    selected_metrics: Optional[List[str]] = None,
+    version_id: Optional[int] = None,
+    event_emitter=None,
 ) -> EvalRun:
     """
     The main evaluation function — runs a complete test suite against an agent.
 
-    Flow:
-      1. Load agent + test suite + test cases from DB
-      2. Validate: agent must have endpoint, suite must have cases
-      3. Create EvalRun record with status="running"
-      4. For each test case:
-           a. Invoke agent endpoint with test input
-           b. Parse the JSON response using response_mapping
-           c. Run deterministic evaluators (latency, cost, tool accuracy, trajectory)
-           d. Run LLM-as-a-Judge (relevance, safety, correctness, faithfulness, etc.)
-           e. Store EvalRunCase + Evaluation in DB
-      5. Aggregate scores → update EvalRun with avg_score, passed/failed counts, status="completed"
-      6. Return the completed EvalRun
+    If version_id is provided, uses that version's endpoint/model instead of
+    the parent agent's config. This enables proper version comparison.
 
-    Args:
-        agent_id:       ID of the agent to evaluate (must be REST API type with endpoint)
-        suite_id:       ID of the test suite to run
-        db:             SQLAlchemy database session
-        gateway:        ModelGateway instance (from app.providers)
-        judge_provider: Which LLM to use as judge ("gemini", "groq", "ollama")
-        judge_model:    Specific model string (None = use provider default)
-
-    Returns:
-        Completed EvalRun ORM object (with all cases and evaluations committed to DB)
-
-    Raises:
-        ValueError: if agent or suite not found, or agent has no endpoint
+    If event_emitter is provided (callable), it is called after each test case
+    completes with a progress event dict. Used for SSE streaming (Day 7).
     """
     # ── Load and validate ─────────────────────────────────────────────────────
     agent: Optional[Agent] = db.query(Agent).filter(Agent.id == agent_id).first()
@@ -492,6 +485,32 @@ def run_evaluation(
     if agent.connection_type != "rest_api" or not agent.endpoint:
         raise ValueError(
             f"Agent '{agent.name}' must be a REST API agent with an endpoint to run evaluations"
+        )
+
+    # ── Resolve version config (Day 7) ───────────────────────────────────────
+    # If a version_id is given, override endpoint/model with version-specific values
+    effective_endpoint = agent.endpoint
+    effective_model = agent.model
+    effective_provider = agent.provider
+
+    if version_id is not None:
+        from app.models.agent_version import AgentVersion
+        version = db.query(AgentVersion).filter(
+            AgentVersion.id == version_id,
+            AgentVersion.agent_id == agent_id,
+        ).first()
+        if not version:
+            raise ValueError(f"AgentVersion id={version_id} not found for agent {agent_id}")
+        effective_endpoint = version.endpoint or agent.endpoint
+        effective_model = version.model or agent.model
+        effective_provider = version.provider or agent.provider
+
+        log.info(
+            "using agent version config",
+            version_id=version_id,
+            version=version.version,
+            endpoint=effective_endpoint,
+            model=effective_model,
         )
 
     suite: Optional[TestSuite] = db.query(TestSuite).filter(TestSuite.id == suite_id).first()
@@ -528,6 +547,7 @@ def run_evaluation(
     eval_run = EvalRun(
         agent_id=agent_id,
         suite_id=suite_id,
+        version_id=version_id,   # Day 7: track which version was evaluated
         status="running",
         total_cases=len(active_cases),
         judge_provider=judge_provider,
@@ -604,6 +624,7 @@ def run_evaluation(
                     gateway=gateway,
                     judge_provider=judge_provider,
                     judge_model=judge_model,
+                    selected_metrics=selected_metrics,
                 )
 
                 # Create Evaluation record
@@ -664,6 +685,26 @@ def run_evaluation(
             failed += 1
 
         db.commit()  # commit after each case — partial results are saved if run crashes
+
+        # Emit SSE progress event if emitter provided (Day 7)
+        if event_emitter:
+            overall_for_event = None
+            if invoke_status == "success":
+                # Get the score we just computed
+                try:
+                    overall_for_event = evaluation.compute_overall_score()
+                except Exception:
+                    pass
+            event_emitter({
+                "event": "case_done",
+                "case": idx + 1,
+                "total": len(active_cases),
+                "test_case_id": test_case.id,
+                "score": overall_for_event,
+                "status": invoke_status,
+                "latency_ms": round(latency_ms, 1) if latency_ms else None,
+                "input_preview": (test_case.input or "")[:60],
+            })
 
     # ── Aggregate and complete the run ────────────────────────────────────────
     avg_score = round(sum(all_scores) / len(all_scores), 4) if all_scores else None

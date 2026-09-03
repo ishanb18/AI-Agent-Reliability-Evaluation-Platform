@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   db:
-    image: postgres:16-alpine          # lightweight official postgres image
+    image: postgres:16-alpine
     container_name: evalplatform_db
     restart: unless-stopped
     environment:
@@ -10,9 +10,22 @@ services:
       POSTGRES_PASSWORD: evalpass
       POSTGRES_DB: evaldb
     ports:
-      - "5432:5432"                    # host:container — access from localhost:5432
+      - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data   # persist data between restarts
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: evalplatform_web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql://evaluser:evalpass@db:5432/evaldb"
+    depends_on:
+      - db
 
 volumes:
   postgres_data:

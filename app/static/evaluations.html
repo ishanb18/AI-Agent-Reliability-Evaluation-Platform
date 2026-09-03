@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evaluation Runs — AI Reliability Platform</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-title">Antigravity Eval</div>
+      </div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="/ui">📊 Dashboard</a></li>
+        <li class="nav-item"><a href="/ui/agents">🤖 Agents & Versions</a></li>
+        <li class="nav-item"><a href="/ui/suites">🧪 Test Suites</a></li>
+        <li class="nav-item active"><a href="/ui/evaluations">📈 Eval Runs</a></li>
+        <li class="nav-item"><a href="/ui/experiments">🔬 Experiments</a></li>
+      </ul>
+    </aside>
+
+    <main class="main-content">
+      <div class="header-bar">
+        <div class="page-title">
+          <h1>Evaluation Runs & Metrics</h1>
+          <p>Inspect historical evaluation runs, metric scores, failure breakdowns, and reports</p>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-primary" id="btn-open-run-modal">▶ Launch New Evaluation Run</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">All Evaluation Runs</div>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Run ID</th>
+                <th>Agent</th>
+                <th>Version</th>
+                <th>Status</th>
+                <th>Passed / Total</th>
+                <th>Avg Score</th>
+                <th>Judge Model</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="runs-table-body">
+              <tr><td colspan="8" style="color: var(--text-muted);">Loading evaluation runs...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Case Level Drilldown Section -->
+      <div class="card" id="run-detail-section" style="display:none;">
+        <div class="card-header">
+          <div>
+            <div class="card-title" id="selected-run-title">Run Breakdown</div>
+            <span style="font-size:0.85rem; color:var(--text-muted);" id="selected-run-subtitle"></span>
+          </div>
+          <div style="display:flex; gap:0.5rem;">
+            <a href="#" class="btn btn-secondary" id="btn-export-report" download>📥 Download Report (MD)</a>
+            <a href="#" class="btn btn-primary" id="btn-view-live">📡 Watch Live SSE Stream</a>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Case #</th>
+                <th>Input Prompt</th>
+                <th>Latency</th>
+                <th>Status</th>
+                <th>Overall Score</th>
+                <th>Judge Reasoning & Metrics</th>
+              </tr>
+            </thead>
+            <tbody id="cases-detail-body">
+              <tr><td colspan="6" style="color: var(--text-muted);">Select a run to view test cases</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Launch Run Modal -->
+  <div class="modal-backdrop" id="modal-run">
+    <div class="modal">
+      <h2 style="margin-bottom:1rem;">Launch New Evaluation Run</h2>
+      <form id="form-trigger-run">
+        <div class="form-group">
+          <label>Target Agent *</label>
+          <select class="form-control" id="run-agent-id" required></select>
+        </div>
+        <div class="form-group">
+          <label>Target Version (Optional)</label>
+          <select class="form-control" id="run-version-id">
+            <option value="">Base Config (default)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Test Suite Benchmark *</label>
+          <select class="form-control" id="run-suite-id" required></select>
+        </div>
+        <div class="form-group">
+          <label>LLM Judge Provider</label>
+          <select class="form-control" id="run-judge-provider">
+            <option value="gemini">Gemini 1.5 Flash (default)</option>
+            <option value="groq">Groq (Llama 3)</option>
+          </select>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-run')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Start Evaluation (Async SSE)</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/evaluations.js"></script>
+</body>
+</html>

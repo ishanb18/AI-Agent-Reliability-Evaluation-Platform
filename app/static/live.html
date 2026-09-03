@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Evaluation Stream — AI Reliability Platform</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-title">Antigravity Eval</div>
+      </div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="/ui">📊 Dashboard</a></li>
+        <li class="nav-item"><a href="/ui/agents">🤖 Agents & Versions</a></li>
+        <li class="nav-item"><a href="/ui/suites">🧪 Test Suites</a></li>
+        <li class="nav-item active"><a href="/ui/evaluations">📈 Eval Runs</a></li>
+        <li class="nav-item"><a href="/ui/experiments">🔬 Experiments</a></li>
+      </ul>
+    </aside>
+
+    <main class="main-content">
+      <div class="header-bar">
+        <div class="page-title">
+          <h1 id="stream-heading">Live Evaluation Stream — Run #...</h1>
+          <p>Real-time Server-Sent Events (SSE) telemetry feed</p>
+        </div>
+        <div class="header-actions">
+          <span class="badge badge-info" id="sse-status-badge">📡 CONNECTING SSE...</span>
+        </div>
+      </div>
+
+      <!-- Live Progress Header -->
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+          <div style="font-weight:600;" id="progress-text">Progress: 0 / 0 cases completed</div>
+          <div style="font-size:1.2rem; font-weight:700; color:var(--primary);" id="live-avg-score">Avg Score: —</div>
+        </div>
+        <div class="score-bar-bg" style="height:14px; border-radius:7px;">
+          <div class="score-bar-fill fill-high" id="live-progress-fill" style="width:0%; height:100%; transition: width 0.3s ease;"></div>
+        </div>
+      </div>
+
+      <!-- Live Stream Console & Table -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Real-Time Event Stream Log</div>
+        </div>
+        <div class="code-block" id="event-log-console" style="height:380px; overflow-y:auto; font-size:0.85rem; line-height:1.6;">
+          <div style="color:var(--text-dim);">Connecting to SSE endpoint GET /evaluations/stream/{run_id}...</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/live.js"></script>
+</body>
+</html>

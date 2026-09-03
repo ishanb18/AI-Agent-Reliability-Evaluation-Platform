@@ -48,6 +48,8 @@ desktop.ini
 # ── Build / Distribution ──────────────────────────────────────────────────────
 dist/
 build/
+node_modules/
+frontend/node_modules/
 *.egg-info/
 *.egg
 *.whl

@@ -8,7 +8,14 @@ is NOT imported before create_all() runs, its table silently won't be created.
 
 from app.models.run import Run
 from app.models.agent import Agent
+from app.models.agent_version import AgentVersion  # Day 7
 from app.models.test_suite import TestSuite, TestCase
 from app.models.eval_run import EvalRun, EvalRunCase, Evaluation  # Day 4
+from app.models.experiment import Experiment  # Day 6
 
-__all__ = ["Run", "Agent", "TestSuite", "TestCase", "EvalRun", "EvalRunCase", "Evaluation"]
+__all__ = [
+    "Run", "Agent", "AgentVersion",
+    "TestSuite", "TestCase",
+    "EvalRun", "EvalRunCase", "Evaluation",
+    "Experiment",
+]

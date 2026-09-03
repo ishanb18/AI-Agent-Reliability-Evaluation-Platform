@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Versioning Workspace — AI Reliability Platform</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-title">Antigravity Eval</div>
+      </div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="/ui">📊 Dashboard</a></li>
+        <li class="nav-item active"><a href="/ui/agents">🤖 Agents & Versions</a></li>
+        <li class="nav-item"><a href="/ui/suites">🧪 Test Suites</a></li>
+        <li class="nav-item"><a href="/ui/evaluations">📈 Eval Runs</a></li>
+        <li class="nav-item"><a href="/ui/experiments">🔬 Experiments</a></li>
+      </ul>
+    </aside>
+
+    <main class="main-content">
+      <div class="header-bar">
+        <div class="page-title">
+          <h1>Agent & Versioning Workspace</h1>
+          <p>Manage agent lineages, fork versions, and trigger V1 vs V2 regression checks</p>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-primary" id="btn-open-agent-modal">+ Register Parent Agent</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Registered Agents</div>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Framework</th>
+                <th>Provider / Model</th>
+                <th>Endpoint</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="agents-table-body">
+              <tr><td colspan="6" style="color: var(--text-muted);">Loading agents...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Selected Agent Version History Section -->
+      <div class="card" id="version-section" style="display:none;">
+        <div class="card-header">
+          <div>
+            <div class="card-title" id="selected-agent-title">Agent Version Lineage</div>
+            <span style="font-size:0.85rem; color:var(--text-muted);" id="selected-agent-subtitle"></span>
+          </div>
+          <div style="display:flex; gap:0.5rem;">
+            <button class="btn btn-secondary" id="btn-open-compare-modal">⚡ Quick Version Compare</button>
+            <button class="btn btn-primary" id="btn-open-version-modal">+ Fork New Version</button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Version ID</th>
+                <th>Version Tag</th>
+                <th>Model String</th>
+                <th>Latest Score</th>
+                <th>Total Runs</th>
+                <th>Notes</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody id="versions-table-body">
+              <tr><td colspan="7" style="color: var(--text-muted);">Select an agent above to view version tree</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Register Agent Modal -->
+  <div class="modal-backdrop" id="modal-agent">
+    <div class="modal">
+      <h2 style="margin-bottom:1rem;">Register New Agent</h2>
+      <form id="form-register-agent">
+        <div class="form-group">
+          <label>Agent Name *</label>
+          <input type="text" class="form-control" id="reg-name" required placeholder="e.g. Customer Support Bot">
+        </div>
+        <div class="form-group">
+          <label>REST Endpoint URL *</label>
+          <input type="url" class="form-control" id="reg-endpoint" required placeholder="http://localhost:8001/chat">
+        </div>
+        <div class="form-group">
+          <label>Framework</label>
+          <input type="text" class="form-control" id="reg-framework" placeholder="langgraph, crewai, or custom">
+        </div>
+        <div class="form-group">
+          <label>LLM Provider & Model</label>
+          <input type="text" class="form-control" id="reg-model" placeholder="gpt-4o, gemini-1.5-flash, llama3">
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-agent')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Agent</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Fork Version Modal -->
+  <div class="modal-backdrop" id="modal-version">
+    <div class="modal">
+      <h2 style="margin-bottom:1rem;">Fork Agent Version</h2>
+      <form id="form-fork-version">
+        <div class="form-group">
+          <label>Version Label *</label>
+          <input type="text" class="form-control" id="ver-label" required placeholder="v2, 2.0.0, gpt4o-mini-test">
+        </div>
+        <div class="form-group">
+          <label>Model String Override</label>
+          <input type="text" class="form-control" id="ver-model" placeholder="gpt-4o-mini (leave blank to inherit)">
+        </div>
+        <div class="form-group">
+          <label>Endpoint URL Override</label>
+          <input type="text" class="form-control" id="ver-endpoint" placeholder="http://localhost:8002/chat (leave blank to inherit)">
+        </div>
+        <div class="form-group">
+          <label>Change Notes</label>
+          <textarea class="form-control" id="ver-notes" rows="2" placeholder="Switched model to gpt-4o-mini to test 80% cost drop"></textarea>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-version')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Version</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Quick Compare Modal -->
+  <div class="modal-backdrop" id="modal-compare">
+    <div class="modal">
+      <h2 style="margin-bottom:1rem;">Quick Version Compare</h2>
+      <form id="form-quick-compare">
+        <div class="form-group">
+          <label>Baseline Version (V1) *</label>
+          <select class="form-control" id="comp-base-ver" required></select>
+        </div>
+        <div class="form-group">
+          <label>Candidate Version (V2) *</label>
+          <select class="form-control" id="comp-cand-ver" required></select>
+        </div>
+        <div class="form-group">
+          <label>Test Suite *</label>
+          <select class="form-control" id="comp-suite-id" required></select>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-compare')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Run Version Comparison</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/agents.js"></script>
+</body>
+</html>

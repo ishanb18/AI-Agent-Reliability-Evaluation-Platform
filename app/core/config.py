@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     # LLM Providers
     gemini_api_key: str = ""      # empty default = provider is optional
+    gemini_api_keys: str = ""     # comma-separated extra keys for quota pooling: "key1,key2"
+    gemini_rotate_models: bool = True  # rotate across models to spread quota (20 req/model/day)
     groq_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
 
